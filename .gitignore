@@ -1,0 +1,25 @@
+# Local credentials
+/config/db.json
+.env*
+
+# Generated data
+/generator/output/*
+!/generator/output/placeholder.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# Development tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,412 @@
+mysql> SOURCE sql/queries/all_queries.sql
+--------------
+-- Query 1: How has event activity changed over time?
+--------------
+
+Query OK, 0 rows affected (0.089 sec)
+
+--------------
+SELECT
+    DATE_FORMAT(start_at, '%Y-%m') AS event_month,
+    COUNT(*) AS total_events,
+    COUNT(DISTINCT organization_id) AS active_organizations
+FROM event
+WHERE start_at >= '2026-01-01'
+  AND start_at < '2026-11-01'
+GROUP BY DATE_FORMAT(start_at, '%Y-%m')
+ORDER BY event_month
+--------------
+
++-------------+--------------+----------------------+
+| event_month | total_events | active_organizations |
++-------------+--------------+----------------------+
+| 2026-01     |           20 |                    5 |
+| 2026-02     |           18 |                    5 |
+| 2026-03     |           22 |                    5 |
+| 2026-04     |           20 |                    5 |
+| 2026-05     |           22 |                    5 |
+| 2026-06     |           21 |                    5 |
+| 2026-07     |           22 |                    5 |
+| 2026-08     |           22 |                    5 |
+| 2026-09     |           21 |                    5 |
+| 2026-10     |           21 |                    5 |
++-------------+--------------+----------------------+
+10 rows in set (0.123 sec)
+
+--------------
+-- Query 2: Which organizations host the most events?
+--------------
+
+Query OK, 0 rows affected (0.003 sec)
+
+--------------
+SELECT
+    o.name AS organization,
+    COUNT(e.event_id) AS total_events
+FROM organization o
+JOIN event e
+    ON o.organization_id = e.organization_id
+WHERE e.start_at >= '2026-01-01'
+  AND e.start_at < '2026-11-01'
+GROUP BY o.organization_id, o.name
+ORDER BY total_events DESC
+--------------
+
++-------------------------------------------------+--------------+
+| organization                                    | total_events |
++-------------------------------------------------+--------------+
+| Gaming Community                                |           60 |
+| Front Range Open Source & Technology Collective |           43 |
+| Ethical Non-Monogamy Community                  |           42 |
+| Rollerblading Community                         |           34 |
+| Pagan / Nontraditional Religion Community       |           30 |
++-------------------------------------------------+--------------+
+5 rows in set (0.030 sec)
+
+--------------
+-- Query 3: Which communities get people to show up?
+--------------
+
+Query OK, 0 rows affected (0.003 sec)
+
+--------------
+SELECT
+    o.name AS organization,
+    COUNT(DISTINCT e.event_id) AS total_events,
+    SUM(
+        CASE
+            WHEN a.attendance_status = 'attended' THEN 1
+            ELSE 0
+        END
+    ) AS total_check_ins,
+    COUNT(DISTINCT
+        CASE
+            WHEN a.attendance_status = 'attended'
+            THEN a.organization_membership_id
+        END
+    ) AS unique_attendees
+FROM organization o
+JOIN event e
+    ON o.organization_id = e.organization_id
+LEFT JOIN event_attendance a
+    ON e.event_id = a.event_id
+    AND e.organization_id = a.organization_id
+WHERE e.start_at >= '2026-01-01'
+  AND e.start_at < '2026-11-01'
+GROUP BY o.organization_id, o.name
+ORDER BY total_check_ins DESC
+--------------
+
++-------------------------------------------------+--------------+-----------------+------------------+
+| organization                                    | total_events | total_check_ins | unique_attendees |
++-------------------------------------------------+--------------+-----------------+------------------+
+| Gaming Community                                |           60 |            3039 |             1734 |
+| Front Range Open Source & Technology Collective |           43 |            2073 |             1103 |
+| Ethical Non-Monogamy Community                  |           42 |            1497 |              951 |
+| Pagan / Nontraditional Religion Community       |           30 |            1442 |              992 |
+| Rollerblading Community                         |           34 |            1423 |              826 |
++-------------------------------------------------+--------------+-----------------+------------------+
+5 rows in set (0.399 sec)
+
+--------------
+-- Query 4: Do people who RSVP actually attend?
+--------------
+
+Query OK, 0 rows affected (0.004 sec)
+
+--------------
+SELECT
+    o.name AS organization,
+    COUNT(*) AS attending_rsvps,
+    SUM(
+        CASE
+            WHEN a.attendance_status = 'attended' THEN 1
+            ELSE 0
+        END
+    ) AS checked_in,
+    ROUND(
+        100.0 * SUM(
+            CASE
+                WHEN a.attendance_status = 'attended' THEN 1
+                ELSE 0
+            END
+        ) / COUNT(*),
+        1
+    ) AS check_in_rate_pct
+FROM event_rsvp r
+JOIN event e
+    ON r.event_id = e.event_id
+    AND r.organization_id = e.organization_id
+JOIN organization o
+    ON e.organization_id = o.organization_id
+LEFT JOIN event_attendance a
+    ON r.event_id = a.event_id
+    AND r.organization_id = a.organization_id
+    AND r.organization_membership_id = a.organization_membership_id
+WHERE r.rsvp_status = 'attending'
+  AND e.start_at >= '2026-01-01'
+  AND e.start_at < '2026-11-01'
+GROUP BY o.organization_id, o.name
+ORDER BY check_in_rate_pct DESC
+--------------
+
++-------------------------------------------------+-----------------+------------+-------------------+
+| organization                                    | attending_rsvps | checked_in | check_in_rate_pct |
++-------------------------------------------------+-----------------+------------+-------------------+
+| Front Range Open Source & Technology Collective |            2126 |       1768 |              83.2 |
+| Pagan / Nontraditional Religion Community       |            1591 |       1244 |              78.2 |
+| Rollerblading Community                         |            1538 |       1179 |              76.7 |
+| Ethical Non-Monogamy Community                  |            1659 |       1269 |              76.5 |
+| Gaming Community                                |            5112 |       2296 |              44.9 |
++-------------------------------------------------+-----------------+------------+-------------------+
+5 rows in set (0.813 sec)
+
+--------------
+-- Query 5: Which events have the weakest RSVP follow-through?
+--------------
+
+Query OK, 0 rows affected (0.003 sec)
+
+--------------
+SELECT
+    o.name AS organization,
+    e.event_id,
+    e.title,
+    COUNT(*) AS attending_rsvps,
+    SUM(
+        CASE
+            WHEN a.attendance_status = 'attended' THEN 1
+            ELSE 0
+        END
+    ) AS checked_in,
+    ROUND(
+        100.0 * SUM(
+            CASE
+                WHEN a.attendance_status = 'attended' THEN 1
+                ELSE 0
+            END
+        ) / COUNT(*),
+        1
+    ) AS check_in_rate_pct
+FROM event e
+JOIN organization o
+    ON e.organization_id = o.organization_id
+JOIN event_rsvp r
+    ON e.event_id = r.event_id
+    AND e.organization_id = r.organization_id
+LEFT JOIN event_attendance a
+    ON r.event_id = a.event_id
+    AND r.organization_id = a.organization_id
+    AND r.organization_membership_id = a.organization_membership_id
+WHERE r.rsvp_status = 'attending'
+  AND e.start_at >= '2026-01-01'
+  AND e.start_at < '2026-11-01'
+GROUP BY o.name, e.event_id, e.title
+HAVING COUNT(*) >= 20
+ORDER BY check_in_rate_pct ASC
+LIMIT 10
+--------------
+
++------------------+----------+------------------------------+-----------------+------------+-------------------+
+| organization     | event_id | title                        | attending_rsvps | checked_in | check_in_rate_pct |
++------------------+----------+------------------------------+-----------------+------------+-------------------+
+| Gaming Community |      184 | Community Co-op Challenge    |             157 |         47 |              29.9 |
+| Gaming Community |      156 | Community Game Demo Fair     |             101 |         32 |              31.7 |
+| Gaming Community |      130 | Casual Tournament Meetup     |             130 |         42 |              32.3 |
+| Gaming Community |      128 | Community Co-op Challenge    |             106 |         38 |              35.8 |
+| Gaming Community |      174 | Board Game Exchange          |             142 |         51 |              35.9 |
+| Gaming Community |      186 | Board Game Exchange          |             128 |         46 |              35.9 |
+| Gaming Community |      133 | Casual Tournament Meetup     |             125 |         46 |              36.8 |
+| Gaming Community |      166 | Puzzle and Party Game Social |             157 |         58 |              36.9 |
+| Gaming Community |      145 | Puzzle and Party Game Social |             104 |         39 |              37.5 |
+| Gaming Community |      153 | Learn-to-Play Workshop       |             155 |         59 |              38.1 |
++------------------+----------+------------------------------+-----------------+------------+-------------------+
+10 rows in set (0.840 sec)
+
+--------------
+-- Query 6: Is low RSVP follow-through widespread?
+--------------
+
+Query OK, 0 rows affected (0.004 sec)
+
+--------------
+WITH event_follow_through AS (
+    SELECT
+        e.organization_id,
+        e.event_id,
+        COUNT(*) AS attending_rsvps,
+        SUM(
+            CASE
+                WHEN a.attendance_status = 'attended' THEN 1
+                ELSE 0
+            END
+        ) AS checked_in
+    FROM event e
+    JOIN event_rsvp r
+        ON e.event_id = r.event_id
+        AND e.organization_id = r.organization_id
+    LEFT JOIN event_attendance a
+        ON r.event_id = a.event_id
+        AND r.organization_id = a.organization_id
+        AND r.organization_membership_id =
+            a.organization_membership_id
+    WHERE r.rsvp_status = 'attending'
+      AND e.start_at >= '2026-01-01'
+      AND e.start_at < '2026-11-01'
+    GROUP BY e.organization_id, e.event_id
+    HAVING COUNT(*) >= 20
+)
+SELECT
+    o.name AS organization,
+    COUNT(*) AS qualifying_events,
+    SUM(
+        CASE
+            WHEN f.checked_in * 2 < f.attending_rsvps
+            THEN 1
+            ELSE 0
+        END
+    ) AS events_below_50_pct,
+    ROUND(
+        100.0 * SUM(
+            CASE
+                WHEN f.checked_in * 2 < f.attending_rsvps
+                THEN 1
+                ELSE 0
+            END
+        ) / COUNT(*),
+        1
+    ) AS pct_events_below_50
+FROM event_follow_through f
+JOIN organization o
+    ON f.organization_id = o.organization_id
+GROUP BY o.organization_id, o.name
+ORDER BY pct_events_below_50 DESC
+--------------
+
++-------------------------------------------------+-------------------+---------------------+---------------------+
+| organization                                    | qualifying_events | events_below_50_pct | pct_events_below_50 |
++-------------------------------------------------+-------------------+---------------------+---------------------+
+| Gaming Community                                |                51 |                  31 |                60.8 |
+| Ethical Non-Monogamy Community                  |                29 |                   0 |                 0.0 |
+| Front Range Open Source & Technology Collective |                32 |                   0 |                 0.0 |
+| Pagan / Nontraditional Religion Community       |                21 |                   0 |                 0.0 |
+| Rollerblading Community                         |                24 |                   0 |                 0.0 |
++-------------------------------------------------+-------------------+---------------------+---------------------+
+5 rows in set (0.585 sec)
+
+--------------
+-- Query 7: How many people attend without an RSVP?
+--------------
+
+Query OK, 0 rows affected (0.003 sec)
+
+--------------
+SELECT
+    o.name AS organization,
+    COUNT(*) AS total_check_ins,
+    SUM(
+        CASE
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM event_rsvp r
+                WHERE r.event_id = a.event_id
+                  AND r.organization_id = a.organization_id
+                  AND r.organization_membership_id =
+                      a.organization_membership_id
+            )
+            THEN 1
+            ELSE 0
+        END
+    ) AS walk_in_check_ins,
+    ROUND(
+        100.0 * SUM(
+            CASE
+                WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM event_rsvp r
+                    WHERE r.event_id = a.event_id
+                      AND r.organization_id = a.organization_id
+                      AND r.organization_membership_id =
+                          a.organization_membership_id
+                )
+                THEN 1
+                ELSE 0
+            END
+        ) / COUNT(*),
+        1
+    ) AS walk_in_pct
+FROM event_attendance a
+JOIN event e
+    ON a.event_id = e.event_id
+    AND a.organization_id = e.organization_id
+JOIN organization o
+    ON e.organization_id = o.organization_id
+WHERE a.attendance_status = 'attended'
+  AND e.start_at >= '2026-01-01'
+  AND e.start_at < '2026-11-01'
+GROUP BY o.organization_id, o.name
+ORDER BY walk_in_pct DESC
+--------------
+
++-------------------------------------------------+-----------------+-------------------+-------------+
+| organization                                    | total_check_ins | walk_in_check_ins | walk_in_pct |
++-------------------------------------------------+-----------------+-------------------+-------------+
+| Gaming Community                                |            3039 |               424 |        14.0 |
+| Rollerblading Community                         |            1423 |               130 |         9.1 |
+| Ethical Non-Monogamy Community                  |            1497 |               127 |         8.5 |
+| Front Range Open Source & Technology Collective |            2073 |               172 |         8.3 |
+| Pagan / Nontraditional Religion Community       |            1442 |               105 |         7.3 |
++-------------------------------------------------+-----------------+-------------------+-------------+
+5 rows in set (1.125 sec)
+
+--------------
+-- Query 8: Do group-only RSVPs and check-ins have matching group memberships?
+--------------
+
+Query OK, 0 rows affected (0.003 sec)
+
+--------------
+SELECT
+    (
+        SELECT COUNT(*)
+        FROM event_rsvp r
+        JOIN event e
+            ON r.event_id = e.event_id
+            AND r.organization_id = e.organization_id
+        WHERE e.visibility = 'group_only'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM group_membership gm
+              WHERE gm.group_id = e.group_id
+                AND gm.organization_id = e.organization_id
+                AND gm.organization_membership_id =
+                    r.organization_membership_id
+          )
+    ) AS invalid_group_rsvps,
+    (
+        SELECT COUNT(*)
+        FROM event_attendance a
+        JOIN event e
+            ON a.event_id = e.event_id
+            AND a.organization_id = e.organization_id
+        WHERE e.visibility = 'group_only'
+          AND a.attendance_status = 'attended'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM group_membership gm
+              WHERE gm.group_id = e.group_id
+                AND gm.organization_id = e.organization_id
+                AND gm.organization_membership_id =
+                    a.organization_membership_id
+          )
+    ) AS invalid_group_check_ins
+--------------
+
++---------------------+-------------------------+
+| invalid_group_rsvps | invalid_group_check_ins |
++---------------------+-------------------------+
+|                   0 |                       0 |
++---------------------+-------------------------+
+1 row in set (0.559 sec)
+
+mysql> notee
